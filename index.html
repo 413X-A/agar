@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <title>Agar.io Mini Clone</title>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      background: #111;
+    }
+    canvas {
+      display: block;
+      background-color: #222;
+    }
+    #score {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      color: white;
+      font: bold 18px Arial;
+      z-index: 10;
+    }
+  </style>
+</head>
+<body>
+  <div id="score">Score: 10</div>
+  <canvas id="gameCanvas"></canvas>
+
+  <script>
+    const canvas = document.getElementById("gameCanvas");
+    const ctx = canvas.getContext("2d");
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+
+    const player = {
+      x: canvas.width / 2,
+      y: canvas.height / 2,
+      radius: 10,
+      color: "lime",
+      speed: 2,
+    };
+
+    let score = 10;
+
+    const bots = [];
+    const food = [];
+
+    function randomColor() {
+      return `hsl(${Math.random() * 360}, 70%, 50%)`;
+    }
+
+    function createBots(n) {
+      for (let i = 0; i < n; i++) {
+        bots.push({
+          x: Math.random() * canvas.width,
+          y: Math.random() * canvas.height,
+          radius: 8 + Math.random() * 12,
+          color: randomColor(),
+          dx: (Math.random() - 0.5) * 1.5,
+          dy: (Math.random() - 0.5) * 1.5,
+        });
+      }
+    }
+
+    function createFood(n) {
+      for (let i = 0; i < n; i++) {
+        food.push({
+          x: Math.random() * canvas.width,
+          y: Math.random() * canvas.height,
+          radius: 4,
+          color: "yellow",
+        });
+      }
+    }
+
+    let mouseX = player.x;
+    let mouseY = player.y;
+
+    window.addEventListener("mousemove", e => {
+      mouseX = e.clientX;
+      mouseY = e.clientY;
+    });
+
+    function drawCircle(obj) {
+      ctx.beginPath();
+      ctx.arc(obj.x, obj.y, obj.radius, 0, Math.PI * 2);
+      ctx.fillStyle = obj.color;
+      ctx.fill();
+    }
+
+    function distance(a, b) {
+      return Math.hypot(a.x - b.x, a.y - b.y);
+    }
+
+    function animate() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // Move player
+      const angle = Math.atan2(mouseY - player.y, mouseX - player.x);
+      const dist = distance({x: mouseX, y: mouseY}, player);
+      if (dist > 1) {
+        player.x += Math.cos(angle) * player.speed;
+        player.y += Math.sin(angle) * player.speed;
+      }
+
+      // Check food collision
+      for (let i = food.length - 1; i >= 0; i--) {
+        if (distance(player, food[i]) < player.radius) {
+          food.splice(i, 1);
+          player.radius += 0.5;
+          score++;
+          document.getElementById("score").innerText = "Score: " + score;
+        }
+      }
+
+      // Check bot collision
+      for (let i = bots.length - 1; i >= 0; i--) {
+        const bot = bots[i];
+        bot.x += bot.dx;
+        bot.y += bot.dy;
+
+        // Bounce off walls
+        if (bot.x < 0 || bot.x > canvas.width) bot.dx *= -1;
+        if (bot.y < 0 || bot.y > canvas.height) bot.dy *= -1;
+
+        if (distance(player, bot) < player.radius + bot.radius) {
+          if (player.radius > bot.radius + 1) {
+            // Eat bot
+            bots.splice(i, 1);
+            player.radius += bot.radius * 0.2;
+            score += Math.floor(bot.radius);
+            document.getElementById("score").innerText = "Score: " + score;
+          } else {
+            // Game Over
+            alert("Game Over! Dein Score: " + score);
+            window.location.reload();
+            return;
+          }
+        }
+
+        drawCircle(bot);
+      }
+
+      // Draw food
+      food.forEach(drawCircle);
+
+      // Draw player
+      drawCircle(player);
+
+      requestAnimationFrame(animate);
+    }
+
+    // Start game
+    createBots(10);
+    createFood(30);
+    animate();
+  </script>
+</body>
+</html>
