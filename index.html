@@ -36,8 +36,8 @@
 
     // Spielfläche
     const world = {
-      width: 4000,
-      height: 4000
+      width: 7500,
+      height: 7500
     };
 
     const player = {
@@ -206,7 +206,7 @@
       drawCircle(player, cam);
 
       // Neue Nahrung hinzufügen
-      if (food.length < 200) {
+      if (food.length < 2500) {
         createFood(3);
       }
 
@@ -214,8 +214,8 @@
     }
 
     // Start
-    createFood(300);
-    createBots(15);
+    createFood(3500);
+    createBots(35);
     animate();
   </script>
 </body>
