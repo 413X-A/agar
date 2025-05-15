@@ -1,9 +1,8 @@
-
 <!DOCTYPE html>
 <html lang="de">
 <head>
-  <meta charset="UTF-8">
-  <title>Agar.io Clone - Komplette Version</title>
+  <meta charset="UTF-8" />
+  <title>Agar.io Smart Bot</title>
   <style>
     html, body {
       margin: 0;
@@ -14,7 +13,6 @@
     canvas {
       display: block;
       background-color: #222;
-      touch-action: none;
     }
     #score {
       position: absolute;
@@ -24,47 +22,201 @@
       font: bold 18px Arial;
       z-index: 10;
     }
-    #joystick, #splitBtn {
-      position: absolute;
-      bottom: 20px;
-      background: rgba(255,255,255,0.1);
-      border: 2px solid #888;
-      border-radius: 50%;
-      touch-action: none;
-    }
-    #joystick {
-      width: 120px;
-      height: 120px;
-      left: 20px;
-    }
-    #splitBtn {
-      width: 80px;
-      height: 80px;
-      right: 20px;
-      color: white;
-      font-weight: bold;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
   </style>
 </head>
 <body>
-  <div id="score">Score: 20</div>
+  <div id="score">Score: 10</div>
   <canvas id="gameCanvas"></canvas>
-  <div id="joystick"></div>
-  <div id="splitBtn">SPLIT</div>
-
   <script>
-    // Hier würde der komplette JavaScript-Code eingefügt, um:
-    // - Spielerbewegung
-    // - Teilen mit nur dem Original beweglich
-    // - Score/Wachstum basierend auf Masse
-    // - Nahrung mit unterschiedlicher Masse
-    // - Fressen nur bei 1.15x Masse und Zentrum-Check
-    // - Bots können sich gegenseitig fressen
-    // - Score-Anzeige nur für Spieler und Bots
-    // Für die Übersichtlichkeit und Komplexität folgt dieser Teil separat.
+    const canvas = document.getElementById("gameCanvas");
+    const ctx = canvas.getContext("2d");
+
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+
+    // Spielfläche
+    const world = {
+      width: 4000,
+      height: 4000
+    };
+
+    const player = {
+      x: world.width / 2,
+      y: world.height / 2,
+      radius: 10,
+      color: "lime",
+      baseSpeed: 3,
+    };
+
+    let score = 10;
+
+    const food = [];
+    const bots = [];
+
+    function randomColor() {
+      return `hsl(${Math.random() * 360}, 70%, 50%)`;
+    }
+
+    function createFood(n) {
+      for (let i = 0; i < n; i++) {
+        food.push({
+          x: Math.random() * world.width,
+          y: Math.random() * world.height,
+          radius: 4,
+          color: "yellow"
+        });
+      }
+    }
+
+    function createBots(n) {
+      for (let i = 0; i < n; i++) {
+        bots.push({
+          x: Math.random() * world.width,
+          y: Math.random() * world.height,
+          radius: 10 + Math.random() * 10,
+          color: randomColor(),
+          target: null,
+          speed: 2
+        });
+      }
+    }
+
+    let mouseX = canvas.width / 2;
+    let mouseY = canvas.height / 2;
+
+    window.addEventListener("mousemove", e => {
+      mouseX = e.clientX;
+      mouseY = e.clientY;
+    });
+
+    function distance(a, b) {
+      return Math.hypot(a.x - b.x, a.y - b.y);
+    }
+
+    function drawCircle(obj, cam) {
+      ctx.beginPath();
+      ctx.arc(obj.x - cam.x, obj.y - cam.y, obj.radius, 0, Math.PI * 2);
+      ctx.fillStyle = obj.color;
+      ctx.fill();
+    }
+
+    function updateCamera() {
+      return {
+        x: player.x - canvas.width / 2,
+        y: player.y - canvas.height / 2
+      };
+    }
+
+    function moveToward(a, b, speed) {
+      const angle = Math.atan2(b.y - a.y, b.x - a.x);
+      a.x += Math.cos(angle) * speed;
+      a.y += Math.sin(angle) * speed;
+    }
+
+    function animate() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      const cam = updateCamera();
+
+      // Spielerbewegung
+      const dx = mouseX - canvas.width / 2;
+      const dy = mouseY - canvas.height / 2;
+      const angle = Math.atan2(dy, dx);
+      const dist = Math.hypot(dx, dy);
+
+      // Dynamische Geschwindigkeit: je größer, desto langsamer
+      const speed = Math.max(0.5, player.baseSpeed * (10 / player.radius));
+      if (dist > 5) {
+        player.x += Math.cos(angle) * speed;
+        player.y += Math.sin(angle) * speed;
+      }
+
+      // Food einsammeln
+      for (let i = food.length - 1; i >= 0; i--) {
+        if (distance(player, food[i]) < player.radius) {
+          food.splice(i, 1);
+          player.radius += 0.4;
+          score++;
+          document.getElementById("score").innerText = "Score: " + score;
+        }
+      }
+
+      // Bots KI
+      bots.forEach(bot => {
+        // Fluchtmodus vor Spieler oder größeren Bots
+        let flee = false;
+        if (distance(bot, player) < 200 && bot.radius < player.radius) {
+          const angle = Math.atan2(bot.y - player.y, bot.x - player.x);
+          bot.x += Math.cos(angle) * bot.speed;
+          bot.y += Math.sin(angle) * bot.speed;
+          flee = true;
+        }
+
+        bots.forEach(other => {
+          if (other !== bot && distance(bot, other) < 150 && bot.radius < other.radius) {
+            const angle = Math.atan2(bot.y - other.y, bot.x - other.x);
+            bot.x += Math.cos(angle) * bot.speed;
+            bot.y += Math.sin(angle) * bot.speed;
+            flee = true;
+          }
+        });
+
+        if (!flee) {
+          // Ziel ist das nächste Futter
+          if (!bot.target || distance(bot, bot.target) < 5) {
+            bot.target = food[Math.floor(Math.random() * food.length)];
+          }
+          if (bot.target) {
+            moveToward(bot, bot.target, bot.speed);
+          }
+        }
+
+        // Frisst Futter
+        for (let i = food.length - 1; i >= 0; i--) {
+          if (distance(bot, food[i]) < bot.radius) {
+            food.splice(i, 1);
+            bot.radius += 0.3;
+          }
+        }
+
+        // Bot Kollisionen
+        if (distance(player, bot) < player.radius + bot.radius) {
+          if (player.radius > bot.radius + 2) {
+            player.radius += bot.radius * 0.3;
+            score += Math.floor(bot.radius);
+            document.getElementById("score").innerText = "Score: " + score;
+            // Bot wird "gefressen" - reset position und radius
+            bot.x = Math.random() * world.width;
+            bot.y = Math.random() * world.height;
+            bot.radius = 10 + Math.random() * 10;
+          } else if (bot.radius > player.radius + 2) {
+            alert("Game Over! Dein Score: " + score);
+            location.reload();
+            return;
+          }
+        }
+
+        drawCircle(bot, cam);
+      });
+
+      // Food zeichnen
+      food.forEach(f => drawCircle(f, cam));
+
+      // Spieler zeichnen
+      drawCircle(player, cam);
+
+      // Neue Nahrung hinzufügen
+      if (food.length < 200) {
+        createFood(3);
+      }
+
+      requestAnimationFrame(animate);
+    }
+
+    // Start
+    createFood(300);
+    createBots(15);
+    animate();
   </script>
 </body>
 </html>
