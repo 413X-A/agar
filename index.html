@@ -1,255 +1,253 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Agar.io Clone</title>
-    <style>
-        body {
-            margin: 0;
-            overflow: hidden;
-        }
-        canvas {
-            display: block;
-        }
-    </style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Agar.io Clone</title>
+  <style>
+    html, body {
+      margin: 0;
+      overflow: hidden;
+    }
+    canvas {
+      background: #f0f0f0;
+      display: block;
+    }
+  </style>
 </head>
 <body>
-    <canvas id="gameCanvas"></canvas>
-    <script>
-        const canvas = document.getElementById("gameCanvas");
-        const ctx = canvas.getContext("2d");
+  <canvas id="game"></canvas>
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
 
-        let width = window.innerWidth;
-        let height = window.innerHeight;
-        canvas.width = width;
-        canvas.height = height;
+    const worldSize = 3;
+    const gameWidth = canvas.width * worldSize;
+    const gameHeight = canvas.height * worldSize;
+    const foods = [];
+    const bots = [];
+    const splitSpeed = 8;
 
-        const WORLD_SIZE = 9000;
-        const FOOD_COUNT = 2500;
-        let food = [];
-        let bots = [];
-        let playerCells = [{ x: WORLD_SIZE / 2, y: WORLD_SIZE / 2, radius: 20, score: 50, isPlayer: true }];
+    class Entity {
+      constructor(x, y, radius, color, isPlayer = false) {
+        this.x = x;
+        this.y = y;
+        this.radius = radius;
+        this.color = color;
+        this.isPlayer = isPlayer;
+        this.vx = 0;
+        this.vy = 0;
+        this.score = Math.floor(radius);
+        this.splitCooldown = 0;
+      }
+      draw() {
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+        ctx.fillStyle = this.color;
+        ctx.fill();
+        ctx.fillStyle = "#000";
+        ctx.font = `${this.radius / 2}px Arial`;
+        ctx.textAlign = "center";
+        ctx.fillText(this.score, this.x, this.y + 5);
+      }
+      update() {
+        this.x += this.vx;
+        this.y += this.vy;
+        this.x = Math.max(this.radius, Math.min(gameWidth - this.radius, this.x));
+        this.y = Math.max(this.radius, Math.min(gameHeight - this.radius, this.y));
+      }
+    }
 
-        function createFood(count) {
-            for (let i = 0; i < count; i++) {
-                food.push({
-                    x: Math.random() * WORLD_SIZE,
-                    y: Math.random() * WORLD_SIZE,
-                    radius: 3,
-                    color: `hsl(${Math.random() * 360}, 100%, 50%)`
-                });
-            }
-        }
+    const player = new Entity(gameWidth / 2, gameHeight / 2, 30, "blue", true);
+    const playerCells = [player];
 
-        function createBots(count) {
-            for (let i = 0; i < count; i++) {
-                bots.push({
-                    x: Math.random() * WORLD_SIZE,
-                    y: Math.random() * WORLD_SIZE,
-                    radius: 10 + Math.random() * 40,
-                    score: 10 + Math.random() * 100
-                });
-            }
-        }
-
-        createFood(FOOD_COUNT);
-        createBots(20);
-
-        let camera = { x: 0, y: 0 };
-        let keys = {};
-        let mouse = { x: width / 2, y: height / 2 };
-
-        document.addEventListener("mousemove", (e) => {
-            mouse.x = e.clientX;
-            mouse.y = e.clientY;
+    function spawnFood() {
+      while (foods.length < 2500) {
+        foods.push({
+          x: Math.random() * gameWidth,
+          y: Math.random() * gameHeight,
+          radius: 3 + Math.random() * 2,
+          color: "green"
         });
+      }
+    }
 
-        document.addEventListener("keydown", (e) => {
-            keys[e.key] = true;
-            if (e.code === "Space") {
-                splitPlayer();
-            }
-        });
+    function spawnBots(n) {
+      for (let i = 0; i < n; i++) {
+        bots.push(new Entity(
+          Math.random() * gameWidth,
+          Math.random() * gameHeight,
+          15 + Math.random() * 20,
+          "red"
+        ));
+      }
+    }
 
-        document.addEventListener("keyup", (e) => {
-            keys[e.key] = false;
-        });
+    function eat(entity, target) {
+      entity.radius = Math.sqrt(entity.radius ** 2 + target.radius ** 2);
+      entity.score = Math.floor(entity.radius);
+    }
 
-        function splitPlayer() {
-            let newCells = [];
-            playerCells.forEach(cell => {
-                if (cell.score > 20) {
-                    let angle = Math.atan2(mouse.y - height / 2, mouse.x - width / 2);
-                    let speed = 20;
-                    let newScore = cell.score / 2;
-                    let newRadius = Math.sqrt(newScore);
-                    cell.score = newScore;
-                    cell.radius = newRadius;
-                    newCells.push({
-                        x: cell.x + Math.cos(angle) * 30,
-                        y: cell.y + Math.sin(angle) * 30,
-                        vx: Math.cos(angle) * speed,
-                        vy: Math.sin(angle) * speed,
-                        radius: newRadius,
-                        score: newScore,
-                        isPlayer: true
-                    });
-                }
-            });
-            playerCells.push(...newCells);
+    function split(entity, direction) {
+      if (entity.radius < 10) return;
+      const newRadius = entity.radius / Math.sqrt(2);
+      const angle = Math.atan2(direction.y - entity.y, direction.x - entity.x);
+      const vx = Math.cos(angle) * splitSpeed;
+      const vy = Math.sin(angle) * splitSpeed;
+
+      const newCell = new Entity(entity.x, entity.y, newRadius, entity.color, entity.isPlayer);
+      newCell.vx = vx;
+      newCell.vy = vy;
+      if (entity.isPlayer) {
+        playerCells.push(newCell);
+      } else {
+        bots.push(newCell);
+      }
+
+      entity.radius = newRadius;
+      entity.score = Math.floor(entity.radius);
+    }
+
+    function gameLoop() {
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      let camX = player.x - canvas.width / 2;
+      let camY = player.y - canvas.height / 2;
+
+      ctx.translate(-camX, -camY);
+
+      // Draw boundary
+      ctx.strokeStyle = "black";
+      ctx.lineWidth = 10;
+      ctx.strokeRect(0, 0, gameWidth, gameHeight);
+
+      // Draw and update food
+      for (let i = foods.length - 1; i >= 0; i--) {
+        let food = foods[i];
+        ctx.beginPath();
+        ctx.arc(food.x, food.y, food.radius, 0, Math.PI * 2);
+        ctx.fillStyle = food.color;
+        ctx.fill();
+      }
+
+      // Player Movement
+      const dx = mouse.x + camX - player.x;
+      const dy = mouse.y + camY - player.y;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+      if (distance > 1) {
+        const speed = 2 / Math.sqrt(playerCells.length);
+        player.vx = dx * speed / distance;
+        player.vy = dy * speed / distance;
+      }
+
+      for (let i = playerCells.length - 1; i >= 0; i--) {
+        let p = playerCells[i];
+        p.update();
+        p.draw();
+
+        for (let j = foods.length - 1; j >= 0; j--) {
+          let f = foods[j];
+          let dist = Math.hypot(p.x - f.x, p.y - f.y);
+          if (dist < p.radius) {
+            eat(p, f);
+            foods.splice(j, 1);
+          }
+        }
+      }
+
+      for (let i = bots.length - 1; i >= 0; i--) {
+        let b = bots[i];
+
+        // Find nearest food
+        let nearestFood = null;
+        let minDist = Infinity;
+        for (let f of foods) {
+          let d = Math.hypot(b.x - f.x, b.y - f.y);
+          if (d < minDist) {
+            minDist = d;
+            nearestFood = f;
+          }
         }
 
-        function update() {
-            for (let cell of playerCells) {
-                let angle = Math.atan2(mouse.y - height / 2, mouse.x - width / 2);
-                let speed = Math.max(1, 10 - cell.radius / 10);
-                cell.x += Math.cos(angle) * speed;
-                cell.y += Math.sin(angle) * speed;
-
-                // Clamp to world borders
-                cell.x = Math.max(cell.radius, Math.min(WORLD_SIZE - cell.radius, cell.x));
-                cell.y = Math.max(cell.radius, Math.min(WORLD_SIZE - cell.radius, cell.y));
-            }
-
-            // Move split parts (impulse)
-            for (let cell of playerCells) {
-                if (cell.vx || cell.vy) {
-                    cell.x += cell.vx;
-                    cell.y += cell.vy;
-                    cell.vx *= 0.95;
-                    cell.vy *= 0.95;
-                    if (Math.abs(cell.vx) < 0.1) cell.vx = 0;
-                    if (Math.abs(cell.vy) < 0.1) cell.vy = 0;
-                }
-            }
-
-            // Collision with food
-            for (let i = food.length - 1; i >= 0; i--) {
-                for (let cell of playerCells) {
-                    let dx = food[i].x - cell.x;
-                    let dy = food[i].y - cell.y;
-                    if (Math.hypot(dx, dy) < cell.radius) {
-                        cell.score += 1;
-                        cell.radius = Math.sqrt(cell.score);
-                        food.splice(i, 1);
-                        break;
-                    }
-                }
-            }
-
-            // Respawn food
-            if (food.length < FOOD_COUNT) {
-                createFood(FOOD_COUNT - food.length);
-            }
-
-            // Bots avoid larger players
-            bots.forEach(bot => {
-                let nearest = playerCells.reduce((a, b) => {
-                    let da = Math.hypot(bot.x - a.x, bot.y - a.y);
-                    let db = Math.hypot(bot.x - b.x, bot.y - b.y);
-                    return da < db ? a : b;
-                });
-                let dx = bot.x - nearest.x;
-                let dy = bot.y - nearest.y;
-                let dist = Math.hypot(dx, dy);
-                if (nearest.radius > bot.radius * 1.15) {
-                    bot.x += dx / dist * 2;
-                    bot.y += dy / dist * 2;
-                } else {
-                    bot.x += (Math.random() - 0.5) * 2;
-                    bot.y += (Math.random() - 0.5) * 2;
-                }
-
-                bot.x = Math.max(bot.radius, Math.min(WORLD_SIZE - bot.radius, bot.x));
-                bot.y = Math.max(bot.radius, Math.min(WORLD_SIZE - bot.radius, bot.y));
-            });
-
-            // Eating logic
-            [...playerCells, ...bots].forEach((cellA, indexA, all) => {
-                all.forEach((cellB, indexB) => {
-                    if (indexA === indexB || cellA.radius < cellB.radius * 1.15) return;
-                    let dx = cellA.x - cellB.x;
-                    let dy = cellA.y - cellB.y;
-                    if (Math.hypot(dx, dy) < cellA.radius * 0.75) {
-                        if (cellB.isPlayer) {
-                            playerCells = playerCells.filter(c => c !== cellB);
-                        } else {
-                            bots = bots.filter(c => c !== cellB);
-                        }
-                        if (cellA.isPlayer || cellB.isPlayer) {
-                            cellA.score += cellB.score;
-                            cellA.radius = Math.sqrt(cellA.score);
-                        }
-                    }
-                });
-            });
-
-            // Merge split cells
-            for (let i = 0; i < playerCells.length; i++) {
-                for (let j = i + 1; j < playerCells.length; j++) {
-                    let a = playerCells[i];
-                    let b = playerCells[j];
-                    if (Math.hypot(a.x - b.x, a.y - b.y) < (a.radius + b.radius) / 2 && a.score >= b.score * 1.15) {
-                        a.score += b.score;
-                        a.radius = Math.sqrt(a.score);
-                        playerCells.splice(j, 1);
-                        j--;
-                    }
-                }
-            }
+        // Find player or bot to chase or run from
+        let target = null;
+        let targetDist = Infinity;
+        for (let e of [...playerCells, ...bots]) {
+          if (e === b) continue;
+          let d = Math.hypot(b.x - e.x, b.y - e.y);
+          if (d < 300 && d < targetDist) {
+            target = e;
+            targetDist = d;
+          }
         }
 
-        function draw() {
-            ctx.clearRect(0, 0, width, height);
-
-            camera.x = playerCells[0].x - width / 2;
-            camera.y = playerCells[0].y - height / 2;
-
-            ctx.save();
-            ctx.translate(-camera.x, -camera.y);
-
-            // Borders
-            ctx.strokeStyle = "black";
-            ctx.lineWidth = 10;
-            ctx.strokeRect(0, 0, WORLD_SIZE, WORLD_SIZE);
-
-            food.forEach(f => {
-                ctx.beginPath();
-                ctx.arc(f.x, f.y, f.radius, 0, Math.PI * 2);
-                ctx.fillStyle = f.color;
-                ctx.fill();
-            });
-
-            bots.forEach(b => {
-                ctx.beginPath();
-                ctx.arc(b.x, b.y, b.radius, 0, Math.PI * 2);
-                ctx.fillStyle = "red";
-                ctx.fill();
-            });
-
-            playerCells.forEach(p => {
-                ctx.beginPath();
-                ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
-                ctx.fillStyle = "blue";
-                ctx.fill();
-                ctx.fillStyle = "white";
-                ctx.font = `${p.radius}px Arial`;
-                ctx.textAlign = "center";
-                ctx.textBaseline = "middle";
-                ctx.fillText(Math.floor(p.score), p.x, p.y);
-            });
-
-            ctx.restore();
+        if (target && b.radius > target.radius * 1.15 && targetDist < 100 && b.splitCooldown <= 0) {
+          split(b, target);
+          b.splitCooldown = 300;
         }
 
-        function gameLoop() {
-            update();
-            draw();
-            requestAnimationFrame(gameLoop);
+        if (target) {
+          let dx = target.x - b.x;
+          let dy = target.y - b.y;
+          let d = Math.hypot(dx, dy);
+          let factor = b.radius > target.radius ? 1 : -1;
+          b.vx = dx / d * factor * 1.2;
+          b.vy = dy / d * factor * 1.2;
+        } else if (nearestFood) {
+          let dx = nearestFood.x - b.x;
+          let dy = nearestFood.y - b.y;
+          let d = Math.hypot(dx, dy);
+          b.vx = dx / d;
+          b.vy = dy / d;
         }
 
-        gameLoop();
-    </script>
+        b.update();
+        b.draw();
+
+        for (let j = foods.length - 1; j >= 0; j--) {
+          let f = foods[j];
+          let dist = Math.hypot(b.x - f.x, b.y - f.y);
+          if (dist < b.radius) {
+            eat(b, f);
+            foods.splice(j, 1);
+          }
+        }
+
+        for (let j = playerCells.length - 1; j >= 0; j--) {
+          let p = playerCells[j];
+          let dist = Math.hypot(b.x - p.x, b.y - p.y);
+          if (b.radius > p.radius * 1.15 && dist < b.radius * 0.75) {
+            eat(b, p);
+            playerCells.splice(j, 1);
+          }
+        }
+
+        b.splitCooldown--;
+      }
+
+      spawnFood();
+
+      requestAnimationFrame(gameLoop);
+    }
+
+    const mouse = { x: 0, y: 0 };
+    canvas.addEventListener("mousemove", e => {
+      mouse.x = e.clientX;
+      mouse.y = e.clientY;
+    });
+
+    window.addEventListener("keydown", e => {
+      if (e.code === "Space") {
+        playerCells.forEach(p => split(p, mouse));
+      }
+    });
+
+    spawnFood();
+    spawnBots(20);
+    gameLoop();
+  </script>
 </body>
 </html>
