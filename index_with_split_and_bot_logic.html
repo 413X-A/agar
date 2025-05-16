@@ -1,0 +1,242 @@
+
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <title>Agar.io mit Teilen & Bot-Logik</title>
+  <style>
+    html, body { margin: 0; padding: 0; overflow: hidden; background: #111; }
+    canvas { display: block; background-color: #222; }
+    #score { position: absolute; top: 10px; left: 10px; color: white; font: bold 18px Arial; z-index: 10; }
+    #splitBtn {
+      position: absolute;
+      bottom: 20px;
+      right: 20px;
+      width: 80px;
+      height: 80px;
+      background: rgba(255,255,255,0.1);
+      border: 2px solid #888;
+      border-radius: 50%;
+      color: white;
+      font-weight: bold;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 10;
+    }
+  </style>
+</head>
+<body>
+  <div id="score">Score: 10</div>
+  <div id="splitBtn">SPLIT</div>
+  <canvas id="gameCanvas"></canvas>
+  <script>
+    
+const canvas = document.getElementById("gameCanvas");
+const ctx = canvas.getContext("2d");
+const splitBtn = document.getElementById("splitBtn");
+
+canvas.width = window.innerWidth;
+canvas.height = window.innerHeight;
+
+const world = { width: 4000, height: 4000 };
+
+let entities = []; // enthält Spieler, Teile und Bots
+let food = [];
+
+let player = {
+  id: "player",
+  x: world.width / 2,
+  y: world.height / 2,
+  radius: 20,
+  color: "lime",
+  vx: 0,
+  vy: 0,
+  isPlayer: true
+};
+
+entities.push(player);
+
+function randomColor() {
+  return `hsl(${Math.random() * 360}, 70%, 50%)`;
+}
+
+function createFood(n) {
+  for (let i = 0; i < n; i++) {
+    food.push({
+      x: Math.random() * world.width,
+      y: Math.random() * world.height,
+      radius: 3 + Math.random() * 3,
+      color: "yellow",
+      mass: 1 + Math.random() * 2
+    });
+  }
+}
+
+function createBots(n) {
+  for (let i = 0; i < n; i++) {
+    entities.push({
+      id: "bot" + i,
+      x: Math.random() * world.width,
+      y: Math.random() * world.height,
+      radius: 10 + Math.random() * 10,
+      color: randomColor(),
+      vx: 0,
+      vy: 0,
+      isBot: true
+    });
+  }
+}
+
+let mouseX = canvas.width / 2;
+let mouseY = canvas.height / 2;
+
+window.addEventListener("mousemove", e => {
+  mouseX = e.clientX;
+  mouseY = e.clientY;
+});
+
+function distance(a, b) {
+  return Math.hypot(a.x - b.x, a.y - b.y);
+}
+
+function moveToward(a, target, speed) {
+  const angle = Math.atan2(target.y - a.y, target.x - a.x);
+  a.vx = Math.cos(angle) * speed;
+  a.vy = Math.sin(angle) * speed;
+}
+
+function drawCircle(obj, cam) {
+  ctx.beginPath();
+  ctx.arc(obj.x - cam.x, obj.y - cam.y, obj.radius, 0, Math.PI * 2);
+  ctx.fillStyle = obj.color;
+  ctx.fill();
+  if (obj.isPlayer || obj.isBot) {
+    ctx.fillStyle = "white";
+    ctx.font = "12px Arial";
+    ctx.fillText(Math.floor(getMass(obj)), obj.x - cam.x - 10, obj.y - cam.y);
+  }
+}
+
+function getMass(entity) {
+  return Math.PI * Math.pow(entity.radius, 2);
+}
+
+function setMass(entity, mass) {
+  entity.radius = Math.sqrt(mass / Math.PI);
+}
+
+function updateCamera() {
+  return {
+    x: player.x - canvas.width / 2,
+    y: player.y - canvas.height / 2
+  };
+}
+
+function animate() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  const cam = updateCamera();
+
+  // Bewegung & Logik
+  entities.forEach(e => {
+    if (e.isPlayer) {
+      const dx = mouseX - canvas.width / 2;
+      const dy = mouseY - canvas.height / 2;
+      const dist = Math.hypot(dx, dy);
+      const speed = Math.max(1, 5 * (20 / e.radius));
+      if (dist > 10) moveToward(e, {x: e.x + dx, y: e.y + dy}, speed);
+    } else if (e.isBot) {
+      // einfache KI: zu nächstem Futter oder kleineren Gegnern
+      let targets = food.concat(entities.filter(other =>
+        other !== e &&
+        !other.isBot &&
+        getMass(e) > getMass(other) * 1.15
+      ));
+      if (targets.length > 0) {
+        let closest = targets.reduce((a, b) => distance(e, a) < distance(e, b) ? a : b);
+        moveToward(e, closest, 2.5);
+      }
+    }
+
+    // Position aktualisieren
+    e.x += e.vx;
+    e.y += e.vy;
+    e.vx *= 0.95;
+    e.vy *= 0.95;
+
+    // Begrenzung
+    e.x = Math.max(e.radius, Math.min(world.width - e.radius, e.x));
+    e.y = Math.max(e.radius, Math.min(world.height - e.radius, e.y));
+  });
+
+  // Food-Kollision
+  for (let i = food.length - 1; i >= 0; i--) {
+    let f = food[i];
+    for (let e of entities) {
+      if (distance(e, f) < e.radius) {
+        let mass = getMass(e) + f.mass;
+        setMass(e, mass);
+        food.splice(i, 1);
+        break;
+      }
+    }
+  }
+
+  // Neue Nahrung
+  if (food.length < 300) createFood(5);
+
+  // Fressen
+  for (let i = entities.length - 1; i >= 0; i--) {
+    let a = entities[i];
+    for (let j = entities.length - 1; j >= 0; j--) {
+      let b = entities[j];
+      if (a !== b && getMass(a) > getMass(b) * 1.15 && distance(a, b) < a.radius * 0.5) {
+        let total = getMass(a) + getMass(b);
+        setMass(a, total);
+        entities.splice(j, 1);
+        if (b === player) {
+          alert("Du wurdest gefressen!");
+          location.reload();
+          return;
+        }
+      }
+    }
+  }
+
+  // Zeichnen
+  food.forEach(f => drawCircle(f, cam));
+  entities.forEach(e => drawCircle(e, cam));
+
+  document.getElementById("score").innerText = "Score: " + Math.floor(getMass(player));
+
+  requestAnimationFrame(animate);
+}
+
+splitBtn.addEventListener("click", () => {
+  let mass = getMass(player);
+  if (mass < 200) return;
+
+  let angle = Math.atan2(mouseY - canvas.height / 2, mouseX - canvas.width / 2);
+  let newMass = mass / 2;
+  setMass(player, newMass);
+
+  let split = {
+    id: "split_" + Math.random(),
+    x: player.x,
+    y: player.y,
+    vx: Math.cos(angle) * 10,
+    vy: Math.sin(angle) * 10,
+    radius: 0,
+    color: player.color
+  };
+  setMass(split, newMass);
+  entities.push(split);
+});
+
+createFood(300);
+createBots(10);
+animate();
+
+  </script>
+</body>
+</html>
