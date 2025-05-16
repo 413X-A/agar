@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Agar.io Clone</title>
+  <style>
+    body { margin: 0; overflow: hidden; font-family: sans-serif; }
+    canvas { display: block; background: #f0f0f0; }
+    #score { position: absolute; top: 10px; left: 10px; background: white; padding: 10px; border-radius: 5px; }
+    #splitBtn { position: absolute; top: 10px; right: 10px; padding: 10px; }
+  </style>
+</head>
+<body>
+  <div id="score">Score: 0</div>
+  <button id="splitBtn">Split</button>
+  <canvas id="game"></canvas>
+
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+
+    const WORLD_SIZE = 3000;
+    let food = [], bots = [], myCells = [], score = 0;
+
+    class Entity {
+      constructor(x, y, radius, color) {
+        this.x = x;
+        this.y = y;
+        this.radius = radius;
+        this.color = color;
+        this.vx = 0;
+        this.vy = 0;
+      }
+
+      draw(cameraX, cameraY) {
+        ctx.beginPath();
+        ctx.arc(this.x - cameraX, this.y - cameraY, this.radius, 0, 2 * Math.PI);
+        ctx.fillStyle = this.color;
+        ctx.fill();
+      }
+
+      isColliding(other) {
+        const dx = this.x - other.x;
+        const dy = this.y - other.y;
+        const dist = Math.hypot(dx, dy);
+        return dist < this.radius + other.radius * 0.75;
+      }
+
+      isBigger(other) {
+        return this.getMass() > other.getMass() * 1.15;
+      }
+
+      getMass() {
+        return this.radius * this.radius;
+      }
+
+      absorb(other) {
+        const newMass = this.getMass() + other.getMass();
+        this.radius = Math.sqrt(newMass);
+      }
+    }
+
+    class Bot extends Entity {
+      constructor() {
+        super(Math.random() * WORLD_SIZE, Math.random() * WORLD_SIZE, 10 + Math.random() * 40, 'red');
+      }
+      move() {
+        this.x += (Math.random() - 0.5) * 2;
+        this.y += (Math.random() - 0.5) * 2;
+      }
+    }
+
+    const player = new Entity(WORLD_SIZE / 2, WORLD_SIZE / 2, 30, 'blue');
+    myCells.push(player);
+
+    for (let i = 0; i < 300; i++) {
+      food.push(new Entity(Math.random() * WORLD_SIZE, Math.random() * WORLD_SIZE, 5, 'green'));
+    }
+
+    for (let i = 0; i < 20; i++) {
+      bots.push(new Bot());
+    }
+
+    function update() {
+      const targetX = player.x + (mouse.x - canvas.width / 2) / 10;
+      const targetY = player.y + (mouse.y - canvas.height / 2) / 10;
+      player.x += (targetX - player.x) * 0.05;
+      player.y += (targetY - player.y) * 0.05;
+
+      bots.forEach(bot => bot.move());
+
+      // Food eating
+      for (let i = food.length - 1; i >= 0; i--) {
+        if (player.isColliding(food[i])) {
+          player.absorb(food[i]);
+          food.splice(i, 1);
+          score++;
+        }
+      }
+
+      // Bot vs player or other bots
+      for (let i = bots.length - 1; i >= 0; i--) {
+        const bot = bots[i];
+
+        // Player eats bot
+        if (player.isColliding(bot) && player.isBigger(bot)) {
+          player.absorb(bot);
+          bots.splice(i, 1);
+          score += 5;
+          continue;
+        }
+
+        // Bot eats player
+        if (bot.isColliding(player) && bot.isBigger(player)) {
+          alert('You were eaten!');
+          location.reload();
+        }
+
+        // Bots eat each other
+        for (let j = 0; j < bots.length; j++) {
+          if (i !== j && bots[i] && bots[j] && bots[i].isColliding(bots[j])) {
+            if (bots[i].isBigger(bots[j])) {
+              bots[i].absorb(bots[j]);
+              bots.splice(j, 1);
+              if (j < i) i--;
+            }
+          }
+        }
+      }
+
+      // Player reabsorbs split cells
+      for (let i = 1; i < myCells.length; i++) {
+        if (player.isColliding(myCells[i]) && player.isBigger(myCells[i])) {
+          player.absorb(myCells[i]);
+          myCells.splice(i, 1);
+          i--;
+        }
+      }
+
+      document.getElementById('score').innerText = 'Score: ' + score;
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const cameraX = player.x - canvas.width / 2;
+      const cameraY = player.y - canvas.height / 2;
+
+      food.forEach(f => f.draw(cameraX, cameraY));
+      bots.forEach(b => b.draw(cameraX, cameraY));
+      myCells.forEach(c => c.draw(cameraX, cameraY));
+    }
+
+    function gameLoop() {
+      update();
+      draw();
+      requestAnimationFrame(gameLoop);
+    }
+
+    const mouse = { x: canvas.width / 2, y: canvas.height / 2 };
+    window.addEventListener('mousemove', e => {
+      mouse.x = e.clientX;
+      mouse.y = e.clientY;
+    });
+
+    document.getElementById('splitBtn').addEventListener('click', () => {
+      const newRadius = player.radius / Math.sqrt(2);
+      if (newRadius < 10) return;
+      player.radius = newRadius;
+      const angle = Math.atan2(mouse.y - canvas.height / 2, mouse.x - canvas.width / 2);
+      const split = new Entity(player.x, player.y, newRadius, 'blue');
+      split.vx = Math.cos(angle) * 10;
+      split.vy = Math.sin(angle) * 10;
+      myCells.push(split);
+    });
+
+    setInterval(() => {
+      for (let i = 1; i < myCells.length; i++) {
+        myCells[i].x += myCells[i].vx;
+        myCells[i].y += myCells[i].vy;
+        myCells[i].vx *= 0.9;
+        myCells[i].vy *= 0.9;
+      }
+    }, 33);
+
+    gameLoop();
+  </script>
+</body>
+</html>
