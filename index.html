@@ -1,222 +1,412 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="de">
 <head>
-  <meta charset="UTF-8">
-  <title>Agar.io Clone</title>
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    canvas { display: block; background: #111; margin: auto; }
-  </style>
+<meta charset="UTF-8" />
+<title>Agar.io Clone - Bots automatisch generieren</title>
+<style>
+  html, body {
+    margin: 0; padding: 0; overflow: hidden;
+    font-family: Arial, sans-serif;
+    background: #f0f0f0;
+  }
+  canvas {
+    display: block;
+    background: #e9e9e9;
+  }
+  #splitBtn {
+    position: absolute;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 10px 20px;
+    font-size: 20px;
+    z-index: 10;
+    cursor: pointer;
+  }
+  #info {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    font-size: 18px;
+    background: rgba(255,255,255,0.7);
+    padding: 6px 12px;
+    border-radius: 5px;
+    z-index: 10;
+  }
+</style>
 </head>
 <body>
-<canvas id="game" width="800" height="600"></canvas>
+<canvas id="game"></canvas>
+<button id="splitBtn">Split</button>
+<div id="info">Score: 0</div>
 <script>
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
+canvas.width = window.innerWidth;
+canvas.height = window.innerHeight;
 
-let keys = {};
+const worldSize = 9000; // 3x so groß
+const foods = [];
+const bots = [];
+const botRemains = [];
+
+const colors = ["red", "orange", "purple", "green", "blue", "pink", "cyan", "magenta", "brown", "darkblue"];
+
 let player = {
-  x: 400, y: 300, radius: 20, speed: 2, score: 100, dx: 0, dy: 0,
-  color: "lime", boost: 0
+  x: worldSize / 2,
+  y: worldSize / 2,
+  radius: 20,
+  score: 100,
+  vx: 0,
+  vy: 0,
+  isMain: true,
+  boostFrames: 0,
+  color: "blue"
 };
+let playerPieces = [player];
 
-let cells = [];
-let deadCells = [];
-let bots = [];
-let splitCooldown = 0;
+const mouse = { x: canvas.width / 2, y: canvas.height / 2 };
 
-function spawnFood(n) {
-  for (let i = 0; i < n; i++) {
-    cells.push({
-      x: Math.random() * 800,
-      y: Math.random() * 600,
-      radius: 5 + Math.random() * 5,
-      color: "white"
-    });
-  }
-}
+const WIN_SCORE = 100000;
 
-function spawnBots(n) {
-  for (let i = 0; i < n; i++) {
-    bots.push({
-      x: Math.random() * 800,
-      y: Math.random() * 600,
-      radius: 15,
-      color: "red",
-      dx: 0,
-      dy: 0
-    });
-  }
-}
+// Spawn initial food and bots
+for (let i = 0; i < 7500; i++) spawnFood();
+for (let i = 0; i < 20; i++) spawnBot();
 
-spawnFood(100);
-spawnBots(5);
-
-function movePlayer() {
-  let angle = Math.atan2(keys["mouseY"] - player.y, keys["mouseX"] - player.x);
-  let speed = player.speed + player.boost;
-
-  if (keys["ShiftLeft"] && player.score > 10) {
-    speed += 1;
-    player.score -= 0.5;
-    player.radius -= 0.02;
-  }
-
-  player.dx = Math.cos(angle) * speed;
-  player.dy = Math.sin(angle) * speed;
-
-  player.x += player.dx;
-  player.y += player.dy;
-
-  // Limit arena
-  player.x = Math.max(player.radius, Math.min(canvas.width - player.radius, player.x));
-  player.y = Math.max(player.radius, Math.min(canvas.height - player.radius, player.y));
-}
-
-function moveBots() {
-  bots.forEach(bot => {
-    let closestFood = null;
-    let flee = null;
-    let minDist = Infinity;
-    let maxDist = 0;
-
-    // Flee from larger players/bots
-    [player, ...bots].forEach(other => {
-      if (other !== bot && other.radius > bot.radius) {
-        const d = Math.hypot(bot.x - other.x, bot.y - other.y);
-        if (d < 150) {
-          flee = other;
-        }
-      }
-    });
-
-    if (flee) {
-      let angle = Math.atan2(bot.y - flee.y, bot.x - flee.x);
-      bot.dx = Math.cos(angle) * 2;
-      bot.dy = Math.sin(angle) * 2;
-    } else {
-      // Move to closest food/deadCell
-      [...cells, ...deadCells].forEach(cell => {
-        const d = Math.hypot(bot.x - cell.x, bot.y - cell.y);
-        if (d < minDist) {
-          minDist = d;
-          closestFood = cell;
-        }
-      });
-
-      if (closestFood) {
-        let angle = Math.atan2(closestFood.y - bot.y, closestFood.x - bot.x);
-        bot.dx = Math.cos(angle);
-        bot.dy = Math.sin(angle);
-      }
-    }
-
-    bot.x += bot.dx;
-    bot.y += bot.dy;
+function spawnFood() {
+  foods.push({
+    x: Math.random() * worldSize,
+    y: Math.random() * worldSize,
+    radius: 3,
+    color: "green"
   });
 }
 
-function checkEat(entity) {
-  for (let i = cells.length - 1; i >= 0; i--) {
-    const food = cells[i];
-    const dist = Math.hypot(entity.x - food.x, entity.y - food.y);
-    if (dist < entity.radius) {
-      entity.radius += food.radius * 0.1;
-      if (entity === player) player.score += 1;
-      cells.splice(i, 1);
-    }
-  }
-
-  for (let i = deadCells.length - 1; i >= 0; i--) {
-    const cell = deadCells[i];
-    const dist = Math.hypot(entity.x - cell.x, entity.y - cell.y);
-    if (dist < entity.radius) {
-      entity.radius += cell.radius * 0.1;
-      if (entity === player) player.score += 1;
-      deadCells.splice(i, 1);
-    }
-  }
+function spawnBot() {
+  const score = 30 + Math.random() * 70;
+  bots.push({
+    x: Math.random() * worldSize,
+    y: Math.random() * worldSize,
+    radius: Math.sqrt(score) + 10,
+    score,
+    vx: 0,
+    vy: 0,
+    boostFrames: 0,
+    splitCooldown: 0,
+    color: colors[Math.floor(Math.random() * colors.length)]
+  });
 }
 
-function drawCircle(entity) {
-  ctx.beginPath();
-  ctx.arc(entity.x, entity.y, entity.radius, 0, Math.PI * 2);
-  ctx.fillStyle = entity.color;
-  ctx.fill();
+function getDistance(a, b) {
+  return Math.hypot(a.x - b.x, a.y - b.y);
 }
 
 function splitPlayer() {
-  if (splitCooldown > 0 || player.radius < 15) return;
-  splitCooldown = 30;
+  // Split nur wenn groß genug
+  playerPieces.forEach((p, index) => {
+    if (p.score > 40) {
+      const splitScore = p.score / 2;
+      p.score = splitScore;
+      p.radius = Math.sqrt(splitScore) + 10;
 
-  const angle = Math.atan2(keys["mouseY"] - player.y, keys["mouseX"] - player.x);
-  const speed = 6;
-
-  const part = {
-    x: player.x + Math.cos(angle) * player.radius,
-    y: player.y + Math.sin(angle) * player.radius,
-    radius: player.radius * 0.5,
-    dx: Math.cos(angle) * speed,
-    dy: Math.sin(angle) * speed,
-    color: "gray",
-    timer: 60
-  };
-
-  deadCells.push(part);
-  player.radius *= 0.7;
-  player.boost = 2;
+      const splitAngle = Math.random() * Math.PI * 2;
+      const newPiece = {
+        x: p.x + Math.cos(splitAngle) * 30,
+        y: p.y + Math.sin(splitAngle) * 30,
+        radius: Math.sqrt(splitScore) + 10,
+        score: splitScore,
+        vx: Math.cos(splitAngle) * 15,
+        vy: Math.sin(splitAngle) * 15,
+        boostFrames: 40,
+        color: p.color,
+        isMain: false
+      };
+      playerPieces.push(newPiece);
+    }
+  });
 }
 
 function update() {
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-  if (splitCooldown > 0) splitCooldown--;
-
-  if (player.boost > 0) player.boost -= 0.1;
-  if (player.boost < 0) player.boost = 0;
-
-  movePlayer();
-  moveBots();
-
-  checkEat(player);
-  bots.forEach(bot => checkEat(bot));
-
-  // Update dead cell movement
-  deadCells.forEach(cell => {
-    if (cell.timer > 0) {
-      cell.x += cell.dx;
-      cell.y += cell.dy;
-      cell.timer--;
+  // Update player movement for each piece
+  playerPieces.forEach(p => {
+    const angle = Math.atan2(mouse.y - canvas.height / 2, mouse.x - canvas.width / 2);
+    let speed = Math.max(2, 10 - p.radius / 20);
+    if (p.boostFrames > 0) {
+      speed += 10;
+      p.boostFrames--;
     }
+    p.vx = Math.cos(angle) * speed;
+    p.vy = Math.sin(angle) * speed;
+    p.x += p.vx;
+    p.y += p.vy;
+    p.x = Math.max(p.radius, Math.min(worldSize - p.radius, p.x));
+    p.y = Math.max(p.radius, Math.min(worldSize - p.radius, p.y));
   });
 
-  // Draw all
-  [...cells, ...deadCells].forEach(drawCircle);
-  drawCircle(player);
-  bots.forEach(drawCircle);
+  // Bots AI & movement
+  for (let i = 0; i < bots.length; i++) {
+    let bot = bots[i];
+    if (bot.splitCooldown > 0) bot.splitCooldown--;
+    let target = null;
 
-  // HUD
-  ctx.fillStyle = "white";
-  ctx.fillText("Score: " + Math.floor(player.score), 10, 20);
+    // Priorität: nahe Remains sammeln wenn bot größer
+    let nearbyRemains = botRemains.filter(r => getDistance(bot, r) < 300 && bot.score > r.score * 1.1);
+    if (nearbyRemains.length > 0) {
+      target = nearbyRemains.reduce((a,b) => getDistance(bot, a) < getDistance(bot,b) ? a : b);
+    } else {
+      // Sonst Nahrung oder kleinere Gegner
+      const potentialTargets = [...foods, ...playerPieces, ...bots.filter(b => b !== bot)];
+      let edibleTargets = potentialTargets.filter(t => bot.score > t.score * 1.25);
+      if (edibleTargets.length > 0) {
+        target = edibleTargets.reduce((a,b) => getDistance(bot, a) < getDistance(bot,b) ? a : b);
+      } else {
+        // Sonst nächstes Food als Ziel
+        target = foods.reduce((a,b) => getDistance(bot, a) < getDistance(bot,b) ? a : b);
+      }
+    }
 
-  requestAnimationFrame(update);
+    if (bot.boostFrames > 0) {
+      bot.x += bot.vx * 1.8;
+      bot.y += bot.vy * 1.8;
+      bot.boostFrames--;
+    } else {
+      if(target){
+        const moveAngle = Math.atan2(target.y - bot.y, target.x - bot.x);
+        const moveSpeed = Math.max(1, 8 - bot.radius / 20);
+        bot.vx = Math.cos(moveAngle) * moveSpeed;
+        bot.vy = Math.sin(moveAngle) * moveSpeed;
+        bot.x += bot.vx;
+        bot.y += bot.vy;
+      }
+    }
+
+    bot.x = Math.max(bot.radius, Math.min(worldSize - bot.radius, bot.x));
+    bot.y = Math.max(bot.radius, Math.min(worldSize - bot.radius, bot.y));
+
+    // Bot frisst Food
+    for (let j = foods.length - 1; j >= 0; j--) {
+      if (getDistance(bot, foods[j]) < bot.radius) {
+        bot.score++;
+        bot.radius = Math.sqrt(bot.score) + 10;
+        foods.splice(j, 1);
+      }
+    }
+
+    // Bot frisst player pieces
+    for (let j = playerPieces.length - 1; j >= 0; j--) {
+      let p = playerPieces[j];
+      if (p && getDistance(bot, p) < bot.radius * 0.75 && bot.score > p.score * 1.25) {
+        bot.score += p.score;
+        bot.radius = Math.sqrt(bot.score) + 10;
+        if (p === player) {
+          alert("Game Over - Bot gewinnt!");
+          window.location.reload();
+          return;
+        }
+        playerPieces.splice(j, 1);
+      }
+    }
+
+    // Bot frisst bot remains (tote Teile)
+    for(let j = botRemains.length -1; j >= 0; j--){
+      let r = botRemains[j];
+      if(getDistance(bot, r) < bot.radius && bot.score > r.score * 1.1){
+        bot.score += r.score;
+        bot.radius = Math.sqrt(bot.score) + 10;
+        botRemains.splice(j,1);
+      }
+    }
+
+    // Bot frisst andere Bots - kein Spawn mehr
+    for (let j = bots.length - 1; j >= 0; j--) {
+      if (i !== j && bots[i] && bots[j]) {
+        if (getDistance(bots[i], bots[j]) < bots[i].radius * 0.75 &&
+            bots[i].score > bots[j].score * 1.25) {
+          bots[i].score += bots[j].score;
+          bots[i].radius = Math.sqrt(bots[i].score) + 10;
+          bots.splice(j, 1);
+          if (j < i) i--;
+        }
+      }
+    }
+
+    // Bot split: Nur wenn sinnvoll
+if (bot.score > 40 && bot.splitCooldown === 0) {
+  // Liste von potentiellen Zielen: Spielerteile und andere Bots (außer sich selbst)
+  const preyList = [...playerPieces, ...bots.filter(b => b !== bot)].filter(p =>
+    bot.score > p.score * 1.25 && getDistance(bot, p) < 250
+  );
+
+  if (preyList.length > 0) {
+    bot.splitCooldown = 60;
+    bot.boostFrames = 40;
+
+    bot.score /= 2;
+    bot.radius = Math.sqrt(bot.score) + 10;
+
+    const angle = Math.random() * 2 * Math.PI;
+
+    bots.push({
+      x: bot.x + Math.cos(angle) * 40,
+      y: bot.y + Math.sin(angle) * 40,
+      radius: Math.sqrt(bot.score) + 10,
+      score: bot.score,
+      vx: Math.cos(angle) * 10,
+      vy: Math.sin(angle) * 10,
+      boostFrames: 40,
+      splitCooldown: 60,
+      color: bot.color
+    });
+  }
 }
 
-document.addEventListener("mousemove", e => {
-  keys["mouseX"] = e.clientX - canvas.getBoundingClientRect().left;
-  keys["mouseY"] = e.clientY - canvas.getBoundingClientRect().top;
+// Player frisst Food
+for (let i = foods.length - 1; i >= 0; i--) {
+playerPieces.forEach((p, idx) => {
+if (getDistance(p, foods[i]) < p.radius) {
+p.score++;
+p.radius = Math.sqrt(p.score) + 10;
+foods.splice(i, 1);
+}
+});
+}
+
+// Player frisst bots und botRemains (kann z.B. auf split botteile)
+for (let i = bots.length - 1; i >= 0; i--) {
+playerPieces.forEach((p, idx) => {
+if (getDistance(p, bots[i]) < p.radius * 0.75 && p.score > bots[i].score * 1.25) {
+p.score += bots[i].score;
+p.radius = Math.sqrt(p.score) + 10;
+botRemains.push({
+x: bots[i].x,
+y: bots[i].y,
+score: bots[i].score,
+radius: Math.sqrt(bots[i].score) + 10,
+color: bots[i].color,
+life: 300
+});
+bots.splice(i, 1);
+}
+});
+}
+// Player frisst bot remains
+for(let i = botRemains.length - 1; i >= 0; i--){
+playerPieces.forEach(p => {
+if(getDistance(p, botRemains[i]) < p.radius){
+p.score += botRemains[i].score;
+p.radius = Math.sqrt(p.score) + 10;
+botRemains.splice(i, 1);
+}
+});
+}
+
+// Update bot remains life
+for(let i = botRemains.length -1; i>=0; i--){
+botRemains[i].life--;
+if(botRemains[i].life <= 0){
+botRemains.splice(i,1);
+}
+}
+
+// Respawn food if needed
+while (foods.length < 7500) spawnFood();
+
+// Respawn bots if needed (max 20)
+while (bots.length < 20) spawnBot();
+
+// Update score for player main piece
+player.score = playerPieces.reduce((a,b) => a + b.score, 0);
+player.radius = Math.sqrt(player.score) + 10;
+
+if(player.score > WIN_SCORE){
+alert("You Win! Congratulations!");
+window.location.reload();
+}
+}
+
+function draw() {
+ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+// Translate to center on average player position
+const avgX = playerPieces.reduce((a,b) => a + b.x, 0) / playerPieces.length;
+const avgY = playerPieces.reduce((a,b) => a + b.y, 0) / playerPieces.length;
+ctx.save();
+ctx.translate(canvas.width/2 - avgX, canvas.height/2 - avgY);
+
+// Draw foods
+foods.forEach(f => {
+ctx.beginPath();
+ctx.fillStyle = f.color;
+ctx.shadowColor = "black";
+ctx.shadowBlur = 3;
+ctx.shadowOffsetX = 0;
+ctx.shadowOffsetY = 0;
+ctx.arc(f.x, f.y, f.radius, 0, 2*Math.PI);
+ctx.fill();
 });
 
-document.addEventListener("keydown", e => {
-  keys[e.code] = true;
-  if (e.code === "Space") splitPlayer();
+// Draw bot remains
+botRemains.forEach(r => {
+ctx.beginPath();
+ctx.fillStyle = r.color;
+ctx.globalAlpha = 0.6;
+ctx.arc(r.x, r.y, r.radius, 0, 2*Math.PI);
+ctx.fill();
+ctx.globalAlpha = 1;
 });
 
-document.addEventListener("keyup", e => {
-  keys[e.code] = false;
+// Draw bots
+bots.forEach(b => {
+ctx.beginPath();
+ctx.fillStyle = b.color;
+ctx.shadowColor = "black";
+ctx.shadowBlur = 10;
+ctx.shadowOffsetX = 0;
+ctx.shadowOffsetY = 0;
+ctx.arc(b.x, b.y, b.radius, 0, 2*Math.PI);
+ctx.fill();
+ctx.shadowBlur = 0;
 });
 
+// Draw player pieces
+playerPieces.forEach(p => {
+ctx.beginPath();
+ctx.fillStyle = p.color;
+ctx.shadowColor = "black";
+ctx.shadowBlur = 15;
+ctx.shadowOffsetX = 0;
+ctx.shadowOffsetY = 0;
+ctx.arc(p.x, p.y, p.radius, 0, 2*Math.PI);
+ctx.fill();
+ctx.shadowBlur = 0;
+});
+
+ctx.restore();
+
+// Draw score
+document.getElementById("info").textContent = Score: ${Math.floor(player.score)};
+}
+
+function gameLoop() {
 update();
+draw();
+requestAnimationFrame(gameLoop);
+}
+
+canvas.addEventListener("mousemove", e => {
+mouse.x = e.clientX;
+mouse.y = e.clientY;
+});
+
+window.addEventListener("resize", () => {
+canvas.width = window.innerWidth;
+canvas.height = window.innerHeight;
+});
+
+document.getElementById("splitBtn").addEventListener("click", () => {
+splitPlayer();
+});
+
+gameLoop();
 </script>
-</body>
-</html>
+</body> </html>
