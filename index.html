@@ -407,6 +407,12 @@ document.getElementById("splitBtn").addEventListener("click", () => {
 splitPlayer();
 });
 
+window.addEventListener("keydown", e => {
+  if (e.code === "Space") {
+    splitPlayer();
+  }
+});
+
 gameLoop();
 </script>
 </body> </html>
