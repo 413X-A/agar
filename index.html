@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Agar.io Clone</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    canvas { display: block; background: #111; margin: auto; }
+  </style>
+</head>
+<body>
+<canvas id="game" width="800" height="600"></canvas>
+<script>
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+let keys = {};
+let player = {
+  x: 400, y: 300, radius: 20, speed: 2, score: 100, dx: 0, dy: 0,
+  color: "lime", boost: 0
+};
+
+let cells = [];
+let deadCells = [];
+let bots = [];
+let splitCooldown = 0;
+
+function spawnFood(n) {
+  for (let i = 0; i < n; i++) {
+    cells.push({
+      x: Math.random() * 800,
+      y: Math.random() * 600,
+      radius: 5 + Math.random() * 5,
+      color: "white"
+    });
+  }
+}
+
+function spawnBots(n) {
+  for (let i = 0; i < n; i++) {
+    bots.push({
+      x: Math.random() * 800,
+      y: Math.random() * 600,
+      radius: 15,
+      color: "red",
+      dx: 0,
+      dy: 0
+    });
+  }
+}
+
+spawnFood(100);
+spawnBots(5);
+
+function movePlayer() {
+  let angle = Math.atan2(keys["mouseY"] - player.y, keys["mouseX"] - player.x);
+  let speed = player.speed + player.boost;
+
+  if (keys["ShiftLeft"] && player.score > 10) {
+    speed += 1;
+    player.score -= 0.5;
+    player.radius -= 0.02;
+  }
+
+  player.dx = Math.cos(angle) * speed;
+  player.dy = Math.sin(angle) * speed;
+
+  player.x += player.dx;
+  player.y += player.dy;
+
+  // Limit arena
+  player.x = Math.max(player.radius, Math.min(canvas.width - player.radius, player.x));
+  player.y = Math.max(player.radius, Math.min(canvas.height - player.radius, player.y));
+}
+
+function moveBots() {
+  bots.forEach(bot => {
+    let closestFood = null;
+    let flee = null;
+    let minDist = Infinity;
+    let maxDist = 0;
+
+    // Flee from larger players/bots
+    [player, ...bots].forEach(other => {
+      if (other !== bot && other.radius > bot.radius) {
+        const d = Math.hypot(bot.x - other.x, bot.y - other.y);
+        if (d < 150) {
+          flee = other;
+        }
+      }
+    });
+
+    if (flee) {
+      let angle = Math.atan2(bot.y - flee.y, bot.x - flee.x);
+      bot.dx = Math.cos(angle) * 2;
+      bot.dy = Math.sin(angle) * 2;
+    } else {
+      // Move to closest food/deadCell
+      [...cells, ...deadCells].forEach(cell => {
+        const d = Math.hypot(bot.x - cell.x, bot.y - cell.y);
+        if (d < minDist) {
+          minDist = d;
+          closestFood = cell;
+        }
+      });
+
+      if (closestFood) {
+        let angle = Math.atan2(closestFood.y - bot.y, closestFood.x - bot.x);
+        bot.dx = Math.cos(angle);
+        bot.dy = Math.sin(angle);
+      }
+    }
+
+    bot.x += bot.dx;
+    bot.y += bot.dy;
+  });
+}
+
+function checkEat(entity) {
+  for (let i = cells.length - 1; i >= 0; i--) {
+    const food = cells[i];
+    const dist = Math.hypot(entity.x - food.x, entity.y - food.y);
+    if (dist < entity.radius) {
+      entity.radius += food.radius * 0.1;
+      if (entity === player) player.score += 1;
+      cells.splice(i, 1);
+    }
+  }
+
+  for (let i = deadCells.length - 1; i >= 0; i--) {
+    const cell = deadCells[i];
+    const dist = Math.hypot(entity.x - cell.x, entity.y - cell.y);
+    if (dist < entity.radius) {
+      entity.radius += cell.radius * 0.1;
+      if (entity === player) player.score += 1;
+      deadCells.splice(i, 1);
+    }
+  }
+}
+
+function drawCircle(entity) {
+  ctx.beginPath();
+  ctx.arc(entity.x, entity.y, entity.radius, 0, Math.PI * 2);
+  ctx.fillStyle = entity.color;
+  ctx.fill();
+}
+
+function splitPlayer() {
+  if (splitCooldown > 0 || player.radius < 15) return;
+  splitCooldown = 30;
+
+  const angle = Math.atan2(keys["mouseY"] - player.y, keys["mouseX"] - player.x);
+  const speed = 6;
+
+  const part = {
+    x: player.x + Math.cos(angle) * player.radius,
+    y: player.y + Math.sin(angle) * player.radius,
+    radius: player.radius * 0.5,
+    dx: Math.cos(angle) * speed,
+    dy: Math.sin(angle) * speed,
+    color: "gray",
+    timer: 60
+  };
+
+  deadCells.push(part);
+  player.radius *= 0.7;
+  player.boost = 2;
+}
+
+function update() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  if (splitCooldown > 0) splitCooldown--;
+
+  if (player.boost > 0) player.boost -= 0.1;
+  if (player.boost < 0) player.boost = 0;
+
+  movePlayer();
+  moveBots();
+
+  checkEat(player);
+  bots.forEach(bot => checkEat(bot));
+
+  // Update dead cell movement
+  deadCells.forEach(cell => {
+    if (cell.timer > 0) {
+      cell.x += cell.dx;
+      cell.y += cell.dy;
+      cell.timer--;
+    }
+  });
+
+  // Draw all
+  [...cells, ...deadCells].forEach(drawCircle);
+  drawCircle(player);
+  bots.forEach(drawCircle);
+
+  // HUD
+  ctx.fillStyle = "white";
+  ctx.fillText("Score: " + Math.floor(player.score), 10, 20);
+
+  requestAnimationFrame(update);
+}
+
+document.addEventListener("mousemove", e => {
+  keys["mouseX"] = e.clientX - canvas.getBoundingClientRect().left;
+  keys["mouseY"] = e.clientY - canvas.getBoundingClientRect().top;
+});
+
+document.addEventListener("keydown", e => {
+  keys[e.code] = true;
+  if (e.code === "Space") splitPlayer();
+});
+
+document.addEventListener("keyup", e => {
+  keys[e.code] = false;
+});
+
+update();
+</script>
+</body>
+</html>
